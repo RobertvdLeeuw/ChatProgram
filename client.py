@@ -1,48 +1,58 @@
-import socket, time, sys
+import socket, sys
 from threading import Thread
 
-Host, Port = "localhost", 12082
-Closing = False
-
+closing = False
+loggedIn = False
 
 def sendtoserver(s):
-    global Closing
+    global closing
 
-    while not Closing:
-        argument = input('You: ')
+    while not closing:
+        argument = input('You: ')  # Password tpying hiding later (security update).
 
-        if argument == 'close':
+        if argument == '!c':
             print('Closing Connection...')
-            s.sendall(b'close')
-            Closing = True
+            s.sendall(b'!c')
             raise SystemExit
 
         s.sendall(argument.encode())
 
 
 def getfromserver(s):
-    global Closing
+    global closing, loggedIn
 
-    while not Closing:
-        data = s.recv(4096)
+    while not closing:
+        data = s.recv(4096).decode()
+
         if not data:
             continue
 
-        print(data.decode())
+        if data == 'COMP: &c':
+            s.close()
+            raise SystemExit
+        elif data == 'COMP: &l':
+            loggedIn = True
+            continue
+
+        if loggedIn:
+            print(f"\r{data}\nYou: ", end='')
+        else:
+            print(f"\r{data}\n> ", end='')
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        Host = sys.argv[1]
-    else:
-        print('No IP specified.')
+    host, port = 0, 0
+
+    try:
+        host = 'localhost' if sys.argv[1] == '-L' else sys.argv[1]
+
+        port = int(sys.argv[2])  # 12082
+    except:
+        print('Invalid port or IP.')
         sys.exit()
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((Host, Port))
-
-    data = s.recv(4096)
-    s.sendall(b'Test.')
+    s.connect((host, port))
 
     Thread(target=sendtoserver, args=(s, )).start()
     Thread(target=getfromserver, args=(s, )).start()
