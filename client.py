@@ -1,43 +1,50 @@
-import socket, sys
+import socket, sys, time
 from threading import Thread
 
-closing = False
+from cryptography.fernet import Fernet
+
+key = 0
+f = 0
+
 loggedIn = False
 
 def sendtoserver(s):
-    global closing
-
-    while not closing:
-        argument = input('You: ')  # Password tpying hiding later (security update).
+    while True:
+        argument = input('You: ')  # Password typing hiding later (security update).
+        argumentEncrypted = f.encrypt(argument.encode())
 
         if argument == '!c':
             print('Closing Connection...')
-            s.sendall(b'!c')
+            s.sendall(argumentEncrypted)
             raise SystemExit
 
-        s.sendall(argument.encode())
+        s.sendall(argumentEncrypted)
 
 
 def getfromserver(s):
-    global closing, loggedIn
+    global loggedIn
 
-    while not closing:
-        data = s.recv(4096).decode()
+    while True:
+        rawdata = f.decrypt(s.recv(4096)).decode()
 
-        if not data:
+        if not rawdata:
             continue
 
-        if data == 'COMP: &c':
-            s.close()
-            raise SystemExit
-        elif data == 'COMP: &l':
-            loggedIn = True
-            continue
+        for data in rawdata.split('&e'):  # To stop messages combining. (See server.py)
+            if data == '&c':
+                s.close()
+                raise SystemExit
+            elif data == '&l':
+                loggedIn = True
+                continue
+            elif data == '&b':  # Fix input threading stuff later.
+                s.sendall(f.encrypt('&_b'.encode()))
+                time.sleep(0.05)
+                print("\rYou've been banned from this server.")
+                s.close()
+                raise SystemExit
 
-        if loggedIn:
-            print(f"\r{data}\nYou: ", end='')
-        else:
-            print(f"\r{data}\n> ", end='')
+        print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
 
 
 if __name__ == "__main__":
@@ -47,9 +54,12 @@ if __name__ == "__main__":
         host = 'localhost' if sys.argv[1] == '-L' else sys.argv[1]
 
         port = int(sys.argv[2])  # 12082
-    except:
-        print('Invalid port or IP.')
+
+        f = Fernet(sys.argv[3].encode())
+    except Exception as error:
+        print('Invalid credentials.')
         sys.exit()
+
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host, port))
