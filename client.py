@@ -2,6 +2,7 @@ import socket, sys, time
 from threading import Thread
 
 from cryptography.fernet import Fernet
+#import clientGUI  # 0.4 Update: Change client.py to only logic and insert IO/UI stuff in clientGUI.py
 
 key = 0
 f = 0
@@ -10,7 +11,7 @@ loggedIn = False
 
 def sendtoserver(s):
     while True:
-        argument = input('You: ')  # Password typing hiding later (security update).
+        argument = input('You: ')  # Password typing hiding later (when switching to GUI).
         argumentEncrypted = f.encrypt(argument.encode())
 
         if argument == '!c':
@@ -43,8 +44,7 @@ def getfromserver(s):
                 print("\rYou've been banned from this server.")
                 s.close()
                 raise SystemExit
-
-        print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
+            print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
 
 
 if __name__ == "__main__":

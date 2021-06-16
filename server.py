@@ -1,4 +1,6 @@
 import socket, sys, time
+from datetime import datetime, timedelta
+from enum import Enum
 from threading import Thread
 from requests import get
 
@@ -10,7 +12,7 @@ f = Fernet(key)
 host, port = 0, 0
 superUserPassword = ''
 
-# &e = message end, to stop 2 messages sent after one another to get combined without using async.
+# &e = message end, to stop 2 messages sent after one another to get combined without using async (it splits in client.py).
 
 users = list()  # All users, active and inactive.
 
@@ -20,15 +22,26 @@ activeUsers = dict()  # address, user
 bannedIPs = list()  # address[0]
 
 
-class User:  # Permissions(?), send to specific(?), change attr(?)
+class Restriction(Enum):
+    none = 0
+    timeout = 1
+    slowmode = 2
+    readonly = 3
+    nofiles = 4  # Can't share files
+
+
+class User:  # Send to specific(?), change attr(?)+
     global users, connections
     global f
 
     currentAddress = 0  # Also used to check if account is active/logged in.
-    lastMessagedTime = 0  # Not in use yet, for later.
+
+    flagType = Restriction.none  # Flagged for timeout, slowmode, etc.
+    restrictionTimer = 0  # Time (in seconds) that user is timed out, or between each message in the case of slow mode
+    lastMessagedTime = 0  # For slowmode or timeout
 
     def __init__(self, name, password, address):
-        self.name = name # Since all names must be unique, there's no need for a separate id.
+        self.name = name  # Since all names must be unique, there's no need for a separate id.
         self._password = password
 
         self.login(address, name, password)
@@ -41,7 +54,7 @@ class User:  # Permissions(?), send to specific(?), change attr(?)
             self.currentAddress = address
 
             self.send('&l')  # Command to tell the client they're logged in.
-            print(f"{self.name}: {self.currentAddress}.")
+            print(f"{self.name}: {self.currentAddress}.")  # Server side
             time.sleep(0.05)  # Sleeping might not be the best solution, but I can't be fucked to use async + threading (yet).
             self.send(f'Welcome, {self.name}')
             self.sendToAll(f'{self.name} entered the chat.')
@@ -49,7 +62,7 @@ class User:  # Permissions(?), send to specific(?), change attr(?)
         return correctInfo and not alreadyActive
 
     def logout(self, banned=False):
-        self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')
+        self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')  # Turn into switch-case when more logout options are added (e.g. timeout).
         self.send('&b' if banned else '&c')
 
         connections[self.currentAddress].close()
@@ -57,7 +70,7 @@ class User:  # Permissions(?), send to specific(?), change attr(?)
         connections.pop(self.currentAddress)
 
         self.currentAddress = 0
-        print(f'{self.name} logged out.')
+        print(f'{self.name} logged out.')  # Server side
 
     def send(self, message):  # Wrapping connection.sendall() so that all actions are done through the user, not some user and some connection.
         connections[self.currentAddress].sendall(f.encrypt(f"{message}&e".encode()))
@@ -74,23 +87,24 @@ class SuperUser(User):
     global bannedIPs
 
     def ban(self, username):
-        user = 0
-        userAddress = 0
+        if user := getUser(username) :
+            bannedIPs.append(user.currentAddress[0])  # [0] To just take IP, not the port - which changes upon reconnection.
+            user.logout(banned=True)
 
-        for userCheck in users:
-            if userCheck.name == username:
-                user = userCheck
-                userAddress = user.currentAddress
-                break
-
-        if user == 0:
-            self.send('No user was found with that name.')
+            del user
             return
+        self.send('No user was found with that name.')
 
-        bannedIPs.append(user.currentAddress[0])
-        user.logout(banned=True)
 
-        del user
+    def slowmode(self, username, timelength):
+        if user := getUser(username):
+            user.flagged = True
+            user.restrictionTimer = int(timelength)
+
+    def timeout(self, username, timelength):
+        if user := getUser(username):
+            user.flagged = True
+            user.restrictionTimer = int(timelength)
 
 
 def getInput(connection, message):  # Networking version of input(message). FP and not OOP, because this function is only used by clients who haven't been assigned to users yet.
@@ -99,49 +113,39 @@ def getInput(connection, message):  # Networking version of input(message). FP a
     return f.decrypt(connection.recv(4096)).decode()
 
 
+def getUser(username):
+    for userCheck in users:
+        if userCheck.name == username:
+            return userCheck
+    return False
+
+
 def userLogin(connection, address):  # Logging in (or registering).
     global users, activeUsers
     global f, superUserPassword
-
-    user = 0
+    connection.sendall(f.encrypt("Test&e".encode()))
 
     while True:
         option = getInput(connection, 'Select option: (L)ogin, (R)egister, (S)uperuser registration.')
 
-        if option == 'S':
-            suPassword = getInput(connection, 'Enter superuser password:')
-
-            if suPassword == superUserPassword:
-                username = getInput(connection, 'Set username:')
-                password = getInput(connection, 'Set password:')
-
-                if username == 'You':
-                    connection.sendall(f.encrypt("Don't make this more confusing for others.&e".encode()))
-                    time.sleep(0.05)
-                    continue
-
-                if username not in list(map(lambda x : x.name, users)):
-                    user = SuperUser(username, password, address)
-                    users.append(user)
-                    activeUsers[address] = user
-
-                    return user
         if option == 'R' or option == 'S':  # Registering
             if option == 'S':
                 suPassword = getInput(connection, 'Enter superuser password:')
 
                 if suPassword != superUserPassword:
+                    connection.sendall(f.encrypt('Incorrect SUP.'.encode()))
                     break
 
             username = getInput(connection, 'Set username:')
             password = getInput(connection, 'Set password:')
+            print(f"{username}: {password}")
 
             if username == 'You':
                 connection.sendall(f.encrypt("Don't make this more confusing for others.&e".encode()))
                 time.sleep(0.05)
                 continue
 
-            if username not in list(map(lambda x : x.name, users)):
+            if getUser(username) is False:
                 user = User(username, password, address) if option == 'R' else SuperUser(username, password, address)
                 users.append(user)
                 activeUsers[address] = user
@@ -167,7 +171,7 @@ def userLogin(connection, address):  # Logging in (or registering).
         time.sleep(0.05)
 
 
-def thread_recv(connection, address):  # Receiving messages from clients, and caching them to send to others..
+def thread_recv(connection, address):  # Receiving messages from clients, and caching them to send to others.
     global connections
     global f
 
@@ -179,6 +183,14 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
         if not data:
             continue
 
+        try:
+            if user.flagType is not Restriction.none:  # Restrictions
+                if datetime.now() - user.lastMessagedTime < timedelta(seconds=user.restrictionTimer):
+                    user.send("Sorry, but you can't send anything right now")  # Make more clear later (type of restriction).
+                    continue
+        except:
+            print(user)
+
         if data == '!c':
             user.logout()
             break
@@ -187,9 +199,9 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
                 user.send('  !h: help\n  !c: close\n  !b <username>: ban user')
             else:
                 user.send('  !h: help\n  !c: close')
-        elif data == '&_b':
+        elif data == '&_b':  # Ban conformation from user end.
             break
-        elif data.split()[0] == '!b': # If the first argument is '!b'
+        elif data.split()[0] == '!b':  # If the first argument is '!b'
             if isinstance(user, SuperUser):
                 if len(data.split()) == 2:
                     user.ban(data.split()[1])
@@ -198,6 +210,7 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
             else:
                 user.send("You don't have permission to use this function.")
         else:
+            user.lastMessagedTime = datetime.now()
             user.sendToAll(f"{user.name}: {data}")
 
 
@@ -212,7 +225,7 @@ def thread_accept():  # Accepting new connections.
         if addr[0] not in bannedIPs:
             Thread(target=thread_recv, args=(conn, addr)).start()
         else:
-            conn.sendall(f.encrypt("Your IP has been banned from this server, fucko!".encode()))  # Not tested/implemented completely yet.
+            conn.sendall(f.encrypt("&b".encode()))  # Not tested/implemented completely yet.
 
 
 if __name__ == "__main__":
