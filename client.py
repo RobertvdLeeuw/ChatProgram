@@ -9,6 +9,7 @@ f = 0
 
 loggedIn = False
 
+
 def sendtoserver(s):
     while True:
         argument = input('You: ')  # Password typing hiding later (when switching to GUI).
@@ -23,7 +24,7 @@ def sendtoserver(s):
 
 
 def getfromserver(s):
-    global loggedIn
+    global loggedIn, f
 
     while True:
         rawdata = f.decrypt(s.recv(4096)).decode()
@@ -32,19 +33,24 @@ def getfromserver(s):
             continue
 
         for data in rawdata.split('&e'):  # To stop messages combining. (See server.py)
-            if data == '&c':
-                s.close()
-                raise SystemExit
-            elif data == '&l':
-                loggedIn = True
-                continue
-            elif data == '&b':  # Fix input threading stuff later.
-                s.sendall(f.encrypt('&_b'.encode()))
-                time.sleep(0.05)
-                print("\rYou've been banned from this server.")
-                s.close()
-                raise SystemExit
-            print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
+            if len(data.split()) > 1:
+                print(data)  # Test this later. No more message receiving now. Just implement row above and adjacent logic.
+                if data.split()[0] == '&w':
+                    print(f"\r{data.split()[1::]}\nYou: ", end='')
+            else:
+                if data == '&c':
+                    s.close()
+                    raise SystemExit
+                elif data == '&l':
+                    loggedIn = True
+                    continue
+                elif data == '&b':  # Fix input threading stuff later.
+                    s.sendall(f.encrypt('&_b'.encode()))
+                    time.sleep(0.05)
+                    print("\rYou've been banned from this server.")
+                    s.close()
+                    raise SystemExit
+                print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
 
 
 if __name__ == "__main__":

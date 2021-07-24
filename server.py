@@ -17,17 +17,18 @@ superUserPassword = ''
 users = list()  # All users, active and inactive.
 
 connections = dict()  # address: connection
-activeUsers = dict()  # address, user
+activeUsers = dict()  # address: user
 
 bannedIPs = list()  # address[0]
 
 
 class Restriction(Enum):
     none = 0
-    timeout = 1
-    slowmode = 2
-    readonly = 3
-    nofiles = 4  # Can't share files
+    ban = 1
+    timeout = 2
+    slowmode = 3
+    readonly = 4
+    nofiles = 5  # Can't share files
 
 
 class User:  # Send to specific(?), change attr(?)+
@@ -75,6 +76,12 @@ class User:  # Send to specific(?), change attr(?)+
     def send(self, message):  # Wrapping connection.sendall() so that all actions are done through the user, not some user and some connection.
         connections[self.currentAddress].sendall(f.encrypt(f"{message}&e".encode()))
 
+
+    def whisper(self, username, message):
+        if user := getUser(username):
+            connections[user.currentAddress].sendall(f.encrypt(f"&w {message}&e".encode()))
+
+
     def sendToAll(self, message):  # Send message to all others in the chat.
         if len(connections) > 1:
             for toAddress in activeUsers.keys():
@@ -87,14 +94,18 @@ class SuperUser(User):
     global bannedIPs
 
     def ban(self, username):
-        if user := getUser(username) :
+        if user := getUser(username):
             bannedIPs.append(user.currentAddress[0])  # [0] To just take IP, not the port - which changes upon reconnection.
             user.logout(banned=True)
+            user.flagged = Restriction.ban
 
-            del user
             return
         self.send('No user was found with that name.')
 
+    def unban(self, username):
+        if user := getUser(username):
+            bannedIPs.pop(user.currentAddress[0])
+            user.flagged = Restriction.none
 
     def slowmode(self, username, timelength):
         if user := getUser(username):
@@ -123,7 +134,6 @@ def getUser(username):
 def userLogin(connection, address):  # Logging in (or registering).
     global users, activeUsers
     global f, superUserPassword
-    connection.sendall(f.encrypt("Test&e".encode()))
 
     while True:
         option = getInput(connection, 'Select option: (L)ogin, (R)egister, (S)uperuser registration.')
@@ -195,23 +205,34 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
             user.logout()
             break
         elif data == '!h':
-            if isinstance(user, SuperUser):
-                user.send('  !h: help\n  !c: close\n  !b <username>: ban user')
-            else:
-                user.send('  !h: help\n  !c: close')
-        elif data == '&_b':  # Ban conformation from user end.
+            user.send('  !h: help\n  !c: close\n  !w <username>: whisper to user\n  !f <filepath>: share a file'  # Test this string stuff later
+                      '' if not isinstance(user, SuperUser) else
+                      '\n  !b <username>: ban user\n  !B <username>: unban user'
+                      '\n  !t <username> <seconds>: timeout user\n  !s <username> <seconds>: slowmode chat on user')
+        elif data.split()[0] == '!w':
+            user.whisper(data.split()[1], ' '.join(data.split()[2::]))
+        elif data == '&_b':  # Ban conformation from user end (also needed to close on user end).
             break
-        elif data.split()[0] == '!b':  # If the first argument is '!b'
+        elif data.split()[0] == '!b' or data.split()[0] == '!B':  # If the first argument is '!b'
             if isinstance(user, SuperUser):
                 if len(data.split()) == 2:
-                    user.ban(data.split()[1])
+                    if data.split()[0] == '!b':
+                        user.ban(data.split()[1])
+                    else:
+                        user.unban(data.split()[1])
                 else:
                     user.send('Too many or too few arguments given.')
             else:
                 user.send("You don't have permission to use this function.")
-        else:
-            user.lastMessagedTime = datetime.now()
-            user.sendToAll(f"{user.name}: {data}")
+        elif data.split()[0] == '!f':
+            if user.flagType != Restriction.nofiles:
+                if len(data.split()) == 2:
+                    pass  # Get file, store somehow
+                else:
+                    user.send('Too many or too few arguments given.')
+            else:
+                user.send("You don't have permission to use this function.")
+
 
 
 def thread_accept():  # Accepting new connections.
@@ -229,7 +250,7 @@ def thread_accept():  # Accepting new connections.
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 6:  # Rewrite to a nice, clean match case once available
         if sys.argv[1] == '-L':
             host = 'localhost'
         elif sys.argv[1] == '-W':
@@ -241,13 +262,19 @@ if __name__ == "__main__":
         port = int(sys.argv[2])  # 12082
 
         superUserPassword = sys.argv[3]
+
+        fileSharing = sys.argv[4] == '-F'
+
+        if fileSharing:
+            filePath = sys.argv[5] if os.path.isabs(filePath) else ''  # Finish this later.
     else:
-        print('Too many or too few arguments.')
+        print('Too few arguments.')
         sys.exit()
 
     if sys.argv[1] == '-W':
         print(f"Public: {get('https://api.ipify.org').text}, Private: {socket.gethostbyname(socket.gethostname())}.")
     print(f"Key: {key.decode()}")
+
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((host, port))
