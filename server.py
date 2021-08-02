@@ -22,7 +22,7 @@ activeUsers = dict()  # address: user
 bannedIPs = list()  # address[0]
 
 
-class Restriction(Enum):
+class Restriction(Enum):  # Might turn into flag later
     none = 0
     ban = 1
     timeout = 2
@@ -35,6 +35,7 @@ class User:  # Send to specific(?), change attr(?)+
     global users, connections
     global f
 
+    lastAddress = 0  # Used for unbanning purposes
     currentAddress = 0  # Also used to check if account is active/logged in.
 
     flagType = Restriction.none  # Flagged for timeout, slowmode, etc.
@@ -66,27 +67,67 @@ class User:  # Send to specific(?), change attr(?)+
         self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')  # Turn into switch-case when more logout options are added (e.g. timeout).
         self.send('&b' if banned else '&c')
 
-        connections[self.currentAddress].close()
+        connections[sclass Restriction(Enum):  # Might turn into flag later
+    none = 0
+    ban = 1
+    timeout = 2
+    slowmode = 3
+    readonly = 4
+    nofiles = 5  # Can't share files
+
+
+class User:  # Send to specific(?), change attr(?)+
+    global users, connections
+    global f
+
+    lastAddress = 0  # Used for unbanning purposes
+    currentAddress = 0  # Also used to check if account is active/logged in.
+
+    flagType = Restriction.none  # Flagged for timeout, slowmode, etc.
+    restrictionTimer = 0  # Time (in seconds) that user is timed out, or between each message in the case of slow mode
+    lastMessagedTime = 0  # For slowmode or timeout
+
+    def __init__(self, name, password, address):
+        self.name = name  # Since all names must be unique, there's no need for a separate id.
+        self._password = password
+
+        self.login(address, name, password)
+
+    def login(self, address, username, password):  # Logs in, if possible, and sends back whether successful.
+        correctInfo = self.name == username and self._password == password
+        alreadyActive = self.currentAddress != 0
+
+        if correctInfo and not alreadyActive:
+            self.currentAddress = address
+
+            self.send('&l')  # Command to tell the client they're logged in.
+            print(f"{self.name}: {self.currentAddress}.")  # Server side
+            time.sleep(0.05)  # Sleeping might not be the best solution, but I can't be fucked to use async + threading (yet).
+            self.send(f'Welcome, {self.name}')
+            self.sendToAll(f'{self.name} entered the chat.')
+
+        return correctInfo and not alreadyActive
+
+    def logout(self, banned=False):
+        self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')  # Turn into switch-case when more logout options are added (e.g. timeout).
+        self.send('&belf.currentAddress].close()
         activeUsers.pop(self.currentAddress)
         connections.pop(self.currentAddress)
 
-        self.currentAddress = 0
+        self.lastAddress, self.currentAddress = self.currentAddress, 0
         print(f'{self.name} logged out.')  # Server side
 
     def send(self, message):  # Wrapping connection.sendall() so that all actions are done through the user, not some user and some connection.
         connections[self.currentAddress].sendall(f.encrypt(f"{message}&e".encode()))
 
-
     def whisper(self, username, message):
         if user := getUser(username):
-            connections[user.currentAddress].sendall(f.encrypt(f"&w {message}&e".encode()))
-
+            connections[user.currentAddress].sendall(f.encrypt(f"&w {self.name} (whispered): {message}&e".encode()))
 
     def sendToAll(self, message):  # Send message to all others in the chat.
         if len(connections) > 1:
-            for toAddress in activeUsers.keys():
-                if toAddress != self.currentAddress:  # So we don't send back to the sender
-                    connections[toAddress].sendall(f.encrypt(f"{message}&e".encode()))
+            for toAddress in [x for x in activeUsers.keys() if x != self.currentAddress]:  # So we don't send back to the sender
+                connections[toAddress].sendall(f.encrypt(f"{self.name}: {message}&e".encode()))
 
 
 class SuperUser(User):
@@ -104,7 +145,7 @@ class SuperUser(User):
 
     def unban(self, username):
         if user := getUser(username):
-            bannedIPs.pop(user.currentAddress[0])
+            bannedIPs.remove(user.lastAddress[0])
             user.flagged = Restriction.none
 
     def slowmode(self, username, timelength):
@@ -148,7 +189,6 @@ def userLogin(connection, address):  # Logging in (or registering).
 
             username = getInput(connection, 'Set username:')
             password = getInput(connection, 'Set password:')
-            print(f"{username}: {password}")
 
             if username == 'You':
                 connection.sendall(f.encrypt("Don't make this more confusing for others.&e".encode()))
@@ -177,7 +217,7 @@ def userLogin(connection, address):  # Logging in (or registering).
                         return user
                 connection.sendall(f.encrypt('Login failed, please try again.'.encode()))
             else:
-                connection.sendall(f.encrypt('No accounts have been registered on this server yet.'.encode()))
+                connection.sendall(f.encrysendpt('No accounts have been registered on this server yet.'.encode()))
         time.sleep(0.05)
 
 
@@ -193,27 +233,28 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
         if not data:
             continue
 
-        try:
+        '''try:
             if user.flagType is not Restriction.none:  # Restrictions
                 if datetime.now() - user.lastMessagedTime < timedelta(seconds=user.restrictionTimer):
                     user.send("Sorry, but you can't send anything right now")  # Make more clear later (type of restriction).
                     continue
         except:
-            print(user)
+            print(user)'''  # Continue on this alter
 
-        if data == '!c':
+
+        if data == '!c':  # Need...switch cases...
             user.logout()
             break
         elif data == '!h':
-            user.send('  !h: help\n  !c: close\n  !w <username>: whisper to user\n  !f <filepath>: share a file'  # Test this string stuff later
-                      '' if not isinstance(user, SuperUser) else
+            user.send('  !h: help\n  !c: close\n  !w <username>: whisper to user\n  !f <filepath>: share a file (TBI)' +
+                      ('' if not isinstance(user, SuperUser) else
                       '\n  !b <username>: ban user\n  !B <username>: unban user'
-                      '\n  !t <username> <seconds>: timeout user\n  !s <username> <seconds>: slowmode chat on user')
+                      '\n  !t <username> <seconds>: timeout user (TBI)\n  !s <username> <seconds>: slowmode chat on user (TBI)'))
         elif data.split()[0] == '!w':
             user.whisper(data.split()[1], ' '.join(data.split()[2::]))
         elif data == '&_b':  # Ban conformation from user end (also needed to close on user end).
             break
-        elif data.split()[0] == '!b' or data.split()[0] == '!B':  # If the first argument is '!b'
+        elif data.split()[0] == '!b' or data.split()[0] == '!B':  # If the first argument is '!b' or '!B'
             if isinstance(user, SuperUser):
                 if len(data.split()) == 2:
                     if data.split()[0] == '!b':
@@ -232,7 +273,8 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
                     user.send('Too many or too few arguments given.')
             else:
                 user.send("You don't have permission to use this function.")
-
+        else:
+            user.sendToAll(data)
 
 
 def thread_accept():  # Accepting new connections.
@@ -250,7 +292,7 @@ def thread_accept():  # Accepting new connections.
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 6:  # Rewrite to a nice, clean match case once available
+    if len(sys.argv) >= 4:  # Rewrite to a nice, clean match case once available
         if sys.argv[1] == '-L':
             host = 'localhost'
         elif sys.argv[1] == '-W':
@@ -263,10 +305,14 @@ if __name__ == "__main__":
 
         superUserPassword = sys.argv[3]
 
-        fileSharing = sys.argv[4] == '-F'
+        fileSharing = '-F' in sys.argv
 
-        if fileSharing:
-            filePath = sys.argv[5] if os.path.isabs(filePath) else ''  # Finish this later.
+        if '-C' in sys.argv: # For later
+            import pyperclip3
+            pyperclip3.copy(key.decode())
+
+        '''if fileSharing:
+            filePath = sys.argv[5] if os.path.isabs(filePath) else ''  # Finish this later.'''
     else:
         print('Too few arguments.')
         sys.exit()

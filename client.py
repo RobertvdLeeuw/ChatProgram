@@ -33,24 +33,26 @@ def getfromserver(s):
             continue
 
         for data in rawdata.split('&e'):  # To stop messages combining. (See server.py)
-            if len(data.split()) > 1:
-                print(data)  # Test this later. No more message receiving now. Just implement row above and adjacent logic.
-                if data.split()[0] == '&w':
-                    print(f"\r{data.split()[1::]}\nYou: ", end='')
+            if data == '':
+                continue
+
+            if len(data.split()) > 1 and data.split()[0] == '&w':
+                print(f"\r{' '.join(data.split()[1::])}\nYou: ", end='')
+            elif data == '&c':
+                s.close()
+                raise SystemExit
+            elif data == '&l':
+                loggedIn = True
+                continue
+            elif data == '&b':  # Fix input threading stuff later.
+                s.sendall(f.encrypt('&_b'.encode()))
+                time.sleep(0.05)
+                print("\rYou've been banned from this server.")
+                s.close()
+                raise SystemExit
             else:
-                if data == '&c':
-                    s.close()
-                    raise SystemExit
-                elif data == '&l':
-                    loggedIn = True
-                    continue
-                elif data == '&b':  # Fix input threading stuff later.
-                    s.sendall(f.encrypt('&_b'.encode()))
-                    time.sleep(0.05)
-                    print("\rYou've been banned from this server.")
-                    s.close()
-                    raise SystemExit
-                print(f"\r{data}\nYou: " if loggedIn else f"\r{data}\n> ", end='')
+                print(f"\r{data}")
+                print("\rYou: " if loggedIn else f"\r> ", end='')
 
 
 if __name__ == "__main__":
