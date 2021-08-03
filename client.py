@@ -29,9 +29,6 @@ def getfromserver(s):
     while True:
         rawdata = f.decrypt(s.recv(4096)).decode()
 
-        if not rawdata:  # If it's empty
-            continue
-
         for data in rawdata.split('&e'):  # To stop messages combining. (See server.py)
             if not data:  # If it's empty
                 continue

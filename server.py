@@ -31,7 +31,7 @@ class Restriction(Enum):  # Might turn into flag later
     nofiles = 5  # Can't share files
 
 
-class User:  # Send to specific(?), change attr(?)+
+class User:  # Change attr(?)+, delete self?
     global users, connections
     global f
 
@@ -58,59 +58,16 @@ class User:  # Send to specific(?), change attr(?)+
             self.send('&l')  # Command to tell the client they're logged in.
             print(f"{self.name}: {self.currentAddress}.")  # Server side
             time.sleep(0.05)  # Sleeping might not be the best solution, but I can't be fucked to use async + threading (yet).
-            self.send(f'Welcome, {self.name}')
-            self.sendToAll(f'{self.name} entered the chat.')
+            self.send(f'Welcome, {self.name}.')
+            self.sendToAll(message=f'{self.name} entered the chat.', noname=True)
 
         return correctInfo and not alreadyActive
 
     def logout(self, banned=False):
-        self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')  # Turn into switch-case when more logout options are added (e.g. timeout).
+        self.sendToAll(message=f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.', noname=True)  # Turn into switch-case when more logout options are added (e.g. timeout).
         self.send('&b' if banned else '&c')
 
-        connections[sclass Restriction(Enum):  # Might turn into flag later
-    none = 0
-    ban = 1
-    timeout = 2
-    slowmode = 3
-    readonly = 4
-    nofiles = 5  # Can't share files
-
-
-class User:  # Send to specific(?), change attr(?)+
-    global users, connections
-    global f
-
-    lastAddress = 0  # Used for unbanning purposes
-    currentAddress = 0  # Also used to check if account is active/logged in.
-
-    flagType = Restriction.none  # Flagged for timeout, slowmode, etc.
-    restrictionTimer = 0  # Time (in seconds) that user is timed out, or between each message in the case of slow mode
-    lastMessagedTime = 0  # For slowmode or timeout
-
-    def __init__(self, name, password, address):
-        self.name = name  # Since all names must be unique, there's no need for a separate id.
-        self._password = password
-
-        self.login(address, name, password)
-
-    def login(self, address, username, password):  # Logs in, if possible, and sends back whether successful.
-        correctInfo = self.name == username and self._password == password
-        alreadyActive = self.currentAddress != 0
-
-        if correctInfo and not alreadyActive:
-            self.currentAddress = address
-
-            self.send('&l')  # Command to tell the client they're logged in.
-            print(f"{self.name}: {self.currentAddress}.")  # Server side
-            time.sleep(0.05)  # Sleeping might not be the best solution, but I can't be fucked to use async + threading (yet).
-            self.send(f'Welcome, {self.name}')
-            self.sendToAll(f'{self.name} entered the chat.')
-
-        return correctInfo and not alreadyActive
-
-    def logout(self, banned=False):
-        self.sendToAll(f'{self.name} has been banned from the chat.' if banned else f'{self.name} left the chat.')  # Turn into switch-case when more logout options are added (e.g. timeout).
-        self.send('&belf.currentAddress].close()
+        connections[self.currentAddress].close()
         activeUsers.pop(self.currentAddress)
         connections.pop(self.currentAddress)
 
@@ -124,10 +81,11 @@ class User:  # Send to specific(?), change attr(?)+
         if user := getUser(username):
             connections[user.currentAddress].sendall(f.encrypt(f"&w {self.name} (whispered): {message}&e".encode()))
 
-    def sendToAll(self, message):  # Send message to all others in the chat.
+    def sendToAll(self, message, noname=False):  # Send message to all others in the chat.
         if len(connections) > 1:
             for toAddress in [x for x in activeUsers.keys() if x != self.currentAddress]:  # So we don't send back to the sender
-                connections[toAddress].sendall(f.encrypt(f"{self.name}: {message}&e".encode()))
+                data = f"{message}&e" if noname else f"{self.name}: {message}&e"
+                connections[toAddress].sendall(f.encrypt(data.encode()))
 
 
 class SuperUser(User):
@@ -147,6 +105,7 @@ class SuperUser(User):
         if user := getUser(username):
             bannedIPs.remove(user.lastAddress[0])
             user.flagged = Restriction.none
+            self.send(f'{user.name} has been unbanned. No one else can see this message.')
 
     def slowmode(self, username, timelength):
         if user := getUser(username):
@@ -190,8 +149,12 @@ def userLogin(connection, address):  # Logging in (or registering).
             username = getInput(connection, 'Set username:')
             password = getInput(connection, 'Set password:')
 
-            if username == 'You':
+            if username == 'You' or username[0] == '!' or username[0] == '&':
                 connection.sendall(f.encrypt("Don't make this more confusing for others.&e".encode()))
+                time.sleep(0.05)
+                continue
+            elif len(username.split()) > 1:
+                connection.sendall(f.encrypt("Sorry, but you can't have spaces in your username.&e".encode()))
                 time.sleep(0.05)
                 continue
 
@@ -230,7 +193,7 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
     while True:
         data = f.decrypt(connection.recv(4096)).decode()
 
-        if not data:
+        if not data:  # If it's empty
             continue
 
         '''try:
@@ -241,38 +204,43 @@ def thread_recv(connection, address):  # Receiving messages from clients, and ca
         except:
             print(user)'''  # Continue on this alter
 
-
-        if data == '!c':  # Need...switch cases...
-            user.logout()
+            # Clean this all once switch cases are implemented
+        if data == '&_b':  # Ban conformation from user end (also needed to close on user end).
             break
-        elif data == '!h':
-            user.send('  !h: help\n  !c: close\n  !w <username>: whisper to user\n  !f <filepath>: share a file (TBI)' +
-                      ('' if not isinstance(user, SuperUser) else
-                      '\n  !b <username>: ban user\n  !B <username>: unban user'
-                      '\n  !t <username> <seconds>: timeout user (TBI)\n  !s <username> <seconds>: slowmode chat on user (TBI)'))
-        elif data.split()[0] == '!w':
-            user.whisper(data.split()[1], ' '.join(data.split()[2::]))
-        elif data == '&_b':  # Ban conformation from user end (also needed to close on user end).
-            break
-        elif data.split()[0] == '!b' or data.split()[0] == '!B':  # If the first argument is '!b' or '!B'
-            if isinstance(user, SuperUser):
-                if len(data.split()) == 2:
-                    if data.split()[0] == '!b':
-                        user.ban(data.split()[1])
+        elif data[0] == '&':
+            user.send("Unable to send message (cannot start with '&', seeing at that is used to server commands).")
+        elif data[0] == '!':
+            if data == '!c':  # Need...switch cases...
+                user.logout()
+                break
+            elif data == '!h':
+                user.send('  !h: help\n  !c: close\n  !w <username>: whisper to user\n  !f <filepath>: share a file (TBI)' +
+                          ('' if not isinstance(user, SuperUser) else
+                          '\n  !b <username>: ban user\n  !B <username>: unban user'
+                          '\n  !t <username> <seconds>: timeout user (TBI)\n  !s <username> <seconds>: slowmode chat on user (TBI)'))
+            elif data.split()[0] == '!w':
+                user.whisper(data.split()[1], ' '.join(data.split()[2::]))
+            elif data.split()[0] == '!b' or data.split()[0] == '!B':  # If the first argument is '!b' or '!B'
+                if isinstance(user, SuperUser):
+                    if len(data.split()) == 2:
+                        if data.split()[0] == '!b':
+                            user.ban(data.split()[1])
+                        else:
+                            user.unban(data.split()[1])
                     else:
-                        user.unban(data.split()[1])
+                        user.send('Too many or too few arguments given.')
                 else:
-                    user.send('Too many or too few arguments given.')
-            else:
-                user.send("You don't have permission to use this function.")
-        elif data.split()[0] == '!f':
-            if user.flagType != Restriction.nofiles:
-                if len(data.split()) == 2:
-                    pass  # Get file, store somehow
+                    user.send("You don't have permission to use this function.")
+            elif data.split()[0] == '!f':
+                if user.flagType != Restriction.nofiles:
+                    if len(data.split()) == 2:
+                        pass  # Get file, store somehow
+                    else:
+                        user.send('Too many or too few arguments given.')
                 else:
-                    user.send('Too many or too few arguments given.')
+                    user.send("You don't have permission to use this function.")
             else:
-                user.send("You don't have permission to use this function.")
+                user.send('Command not found. Type !h for help')
         else:
             user.sendToAll(data)
 
